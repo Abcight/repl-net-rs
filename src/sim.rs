@@ -1,4 +1,4 @@
-use macroquad::prelude::{vec2, KeyCode};
+use macroquad::prelude::{KeyCode, vec2};
 
 use bitflags::bitflags;
 
@@ -141,5 +141,3 @@ pub fn camera_for_buffer() -> macroquad::prelude::Camera2D {
 		..Default::default()
 	}
 }
-
-

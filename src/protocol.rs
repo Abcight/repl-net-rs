@@ -30,5 +30,3 @@ pub enum S2C {
 	AssignStart(AssignStart),
 	TickInputs(TickInputs),
 }
-
-

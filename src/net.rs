@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Context;
 
-use crate::protocol::{AssignStart, C2S, S2C, TickInputs, PLAYER_COUNT};
+use crate::protocol::{AssignStart, C2S, PLAYER_COUNT, S2C, TickInputs};
 
 fn write_frame(stream: &mut TcpStream, msg: &impl serde::Serialize) -> anyhow::Result<()> {
 	let bytes = bincode::serialize(msg)?;
@@ -61,14 +61,16 @@ pub fn spawn_server(
 
 			let tx_in = tx_in.clone();
 			let pid = assigned_id as usize;
-			thread::spawn(move || loop {
-				let msg: anyhow::Result<C2S> = read_frame(&mut read_stream);
-				let Ok(C2S::Input(i)) = msg else { break };
-				let _ = tx_in.send(InboundInput {
-					player_id: pid, // don't trust client
-					tick: i.tick,
-					bits: i.bits,
-				});
+			thread::spawn(move || {
+				loop {
+					let msg: anyhow::Result<C2S> = read_frame(&mut read_stream);
+					let Ok(C2S::Input(i)) = msg else { break };
+					let _ = tx_in.send(InboundInput {
+						player_id: pid, // don't trust client
+						tick: i.tick,
+						bits: i.bits,
+					});
+				}
 			});
 
 			conns.push(stream);
@@ -163,7 +165,9 @@ pub enum NetCmd {
 	SendInput { tick: u32, bits: u8 },
 }
 
-pub fn spawn_client(addr: String) -> anyhow::Result<(mpsc::Receiver<NetEvent>, mpsc::Sender<NetCmd>)> {
+pub fn spawn_client(
+	addr: String,
+) -> anyhow::Result<(mpsc::Receiver<NetEvent>, mpsc::Sender<NetCmd>)> {
 	let (tx_evt, rx_evt) = mpsc::channel::<NetEvent>();
 	let (tx_cmd, rx_cmd) = mpsc::channel::<NetCmd>();
 
@@ -173,15 +177,17 @@ pub fn spawn_client(addr: String) -> anyhow::Result<(mpsc::Receiver<NetEvent>, m
 	let mut write_stream = stream;
 
 	// Reader
-	thread::spawn(move || loop {
-		let msg: anyhow::Result<S2C> = read_frame(&mut read_stream);
-		let Ok(msg) = msg else { break };
-		let ev = match msg {
-			S2C::AssignStart(a) => NetEvent::AssignStart(a),
-			S2C::TickInputs(t) => NetEvent::TickInputs(t),
-		};
-		if tx_evt.send(ev).is_err() {
-			break;
+	thread::spawn(move || {
+		loop {
+			let msg: anyhow::Result<S2C> = read_frame(&mut read_stream);
+			let Ok(msg) = msg else { break };
+			let ev = match msg {
+				S2C::AssignStart(a) => NetEvent::AssignStart(a),
+				S2C::TickInputs(t) => NetEvent::TickInputs(t),
+			};
+			if tx_evt.send(ev).is_err() {
+				break;
+			}
 		}
 	});
 
@@ -190,7 +196,10 @@ pub fn spawn_client(addr: String) -> anyhow::Result<(mpsc::Receiver<NetEvent>, m
 		while let Ok(cmd) = rx_cmd.recv() {
 			match cmd {
 				NetCmd::SendInput { tick, bits } => {
-					let _ = write_frame(&mut write_stream, &C2S::Input(crate::protocol::InputMsg { tick, bits }));
+					let _ = write_frame(
+						&mut write_stream,
+						&C2S::Input(crate::protocol::InputMsg { tick, bits }),
+					);
 				}
 			}
 		}
@@ -198,5 +207,3 @@ pub fn spawn_client(addr: String) -> anyhow::Result<(mpsc::Receiver<NetEvent>, m
 
 	Ok((rx_evt, tx_cmd))
 }
-
-

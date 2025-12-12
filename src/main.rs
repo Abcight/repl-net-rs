@@ -5,8 +5,8 @@ mod sim;
 use std::{
 	collections::VecDeque,
 	sync::{
-		atomic::{AtomicU32, Ordering},
 		Arc,
+		atomic::{AtomicU32, Ordering},
 	},
 	time::{Duration, Instant},
 };
@@ -17,7 +17,7 @@ use macroquad::{miniquad::window::set_window_size, prelude::*};
 
 use crate::{
 	net::{NetCmd, NetEvent},
-	sim::{lerp, InputBits, SimState},
+	sim::{InputBits, SimState, lerp},
 };
 
 // Server intentionally runs behind clock time by this many ticks
@@ -40,7 +40,10 @@ enum Runtime {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "repl-net-rs", about = "inputs-only deterministic networking demo")]
+#[command(
+	name = "repl-net-rs",
+	about = "inputs-only deterministic networking demo"
+)]
 struct Args {
 	#[arg(long, value_enum, default_value_t = Runtime::Client)]
 	runtime: Runtime,
@@ -127,7 +130,13 @@ async fn run_server(addr: String, buffer: RenderTarget) -> anyhow::Result<()> {
 		set_default_camera();
 		clear_background(BLACK);
 		draw_buffer_to_screen(&buffer);
-		draw_text(&format!("server tick {}", latest.tick), 10.0, 24.0, 16.0, WHITE);
+		draw_text(
+			&format!("server tick {}", latest.tick),
+			10.0,
+			24.0,
+			16.0,
+			WHITE,
+		);
 
 		next_frame().await;
 	}
@@ -159,7 +168,7 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 	let mut latest_server_tick: u32 = 0;
 	let mut pending_rollback: Option<u32> = None;
 
-		let mut accumulator: f32 = 0.0;
+	let mut accumulator: f32 = 0.0;
 
 	loop {
 		if is_key_pressed(KeyCode::Left) {
@@ -282,7 +291,9 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 		}
 
 		// Determine where we should be by clock time
-		let time_tick = (Instant::now().saturating_duration_since(start_at).as_secs_f32()
+		let time_tick = (Instant::now()
+			.saturating_duration_since(start_at)
+			.as_secs_f32()
 			* sim::TPS as f32)
 			.floor() as u32;
 		let target_tick = time_tick;
@@ -341,9 +352,7 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 			used_inputs[idx] = Some((local_tick, inputs));
 
 			// Delay input submission by the same ms
-			let stamped_tick = local_tick
-				.saturating_add(latency_ticks)
-				.min(max_stamp_tick);
+			let stamped_tick = local_tick.saturating_add(latency_ticks).min(max_stamp_tick);
 			schedule_with_delay(
 				&mut out_q,
 				&mut out_last,
@@ -402,5 +411,3 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 		next_frame().await;
 	}
 }
-
-
