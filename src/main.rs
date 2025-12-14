@@ -297,20 +297,20 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 		// Estimated latency from the artificial delay
 		let delay_ms = artificial_delay_ms.load(Ordering::Relaxed);
 		let latency_ticks = ((delay_ms as f32 / 1000.0) * sim::TPS as f32).ceil() as u32;
-		
+
 		// Calculate dynamic lead: round-trip latency (2x one-way) plus a small buffer
 		// This ensures our inputs arrive at the server in time
 		let target_lead_ticks = (latency_ticks * 2).max(3);
-		
+
 		// Estimate server tick (server runs at wall clock time)
 		let estimated_server_tick = time_tick;
-		
+
 		// Target tick is server tick plus our dynamic lead
 		let target_tick = estimated_server_tick + target_lead_ticks;
-		
+
 		// Calculate how far ahead/behind we are from target
 		let ahead = local_tick as i64 - target_tick as i64;
-		
+
 		// Time dilation to keep a healthy lead relative to the server timeline
 		let sim_rate = if ahead < -2 {
 			1.03
