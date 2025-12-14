@@ -20,9 +20,6 @@ use crate::{
 	sim::{InputBits, SimState, lerp},
 };
 
-// Server intentionally runs behind clock time by this many ticks
-const LEAD_TICKS: u32 = 4;
-
 // Server accepts client inputs for ticks in [server_tick, server_tick + D_MAX]
 const D_MAX: u32 = 32;
 
@@ -105,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_server(addr: String, buffer: RenderTarget) -> anyhow::Result<()> {
-	let rx_render = net::spawn_server(addr, Duration::from_millis(800), LEAD_TICKS, D_MAX);
+	let rx_render = net::spawn_server(addr, Duration::from_millis(800), D_MAX);
 	let mut latest = net::ServerRender {
 		tick: 0,
 		state: SimState::new(),
@@ -296,22 +293,28 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 			.as_secs_f32()
 			* sim::TPS as f32)
 			.floor() as u32;
-		let target_tick = time_tick;
 
 		// Estimated latency from the artificial delay
 		let delay_ms = artificial_delay_ms.load(Ordering::Relaxed);
-		let latency_ticks = ((delay_ms as f32 / 1000.0) * sim::TPS as f32).floor() as u32;
-
-		// Estimated current server tick from shared time
-		let server_tick_est = time_tick.saturating_sub(LEAD_TICKS);
-		let max_stamp_tick = server_tick_est.saturating_add(D_MAX);
-
+		let latency_ticks = ((delay_ms as f32 / 1000.0) * sim::TPS as f32).ceil() as u32;
+		
+		// Calculate dynamic lead: round-trip latency (2x one-way) plus a small buffer
+		// This ensures our inputs arrive at the server in time
+		let target_lead_ticks = (latency_ticks * 2).max(3);
+		
+		// Estimate server tick (server runs at wall clock time)
+		let estimated_server_tick = time_tick;
+		
+		// Target tick is server tick plus our dynamic lead
+		let target_tick = estimated_server_tick + target_lead_ticks;
+		
+		// Calculate how far ahead/behind we are from target
+		let ahead = local_tick as i64 - target_tick as i64;
+		
 		// Time dilation to keep a healthy lead relative to the server timeline
-		let expected_server_tick = time_tick.saturating_sub(LEAD_TICKS);
-		let ahead = local_tick as i64 - expected_server_tick as i64;
-		let sim_rate = if ahead < (LEAD_TICKS as i64 - 1) {
+		let sim_rate = if ahead < -2 {
 			1.03
-		} else if ahead > (LEAD_TICKS as i64 + 2) {
+		} else if ahead > 2 {
 			0.98
 		} else {
 			1.0
@@ -352,7 +355,7 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 			used_inputs[idx] = Some((local_tick, inputs));
 
 			// Delay input submission by the same ms
-			let stamped_tick = local_tick.saturating_add(latency_ticks).min(max_stamp_tick);
+			let stamped_tick = local_tick;
 			schedule_with_delay(
 				&mut out_q,
 				&mut out_last,
@@ -398,9 +401,10 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 		draw_buffer_to_screen(&buffer);
 		let title = if malicious { "malicious" } else { "client" };
 		let delay = delay_ms;
+		let lead = local_tick as i64 - estimated_server_tick as i64;
 		draw_text(
 			&format!(
-				"{title} id={my_id} tick={local_tick} srv={latest_server_tick} delay={delay}ms latency_ticks={latency_ticks}"
+				"{title} id={my_id} tick={local_tick} srv={latest_server_tick} delay={delay}ms lead={lead} target_lead={target_lead_ticks}"
 			),
 			10.0,
 			24.0,

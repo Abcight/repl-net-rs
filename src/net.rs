@@ -43,7 +43,6 @@ pub struct InboundInput {
 pub fn spawn_server(
 	addr: String,
 	start_delay: Duration,
-	lead_ticks: u32,
 	d_max: u32,
 ) -> mpsc::Receiver<ServerRender> {
 	let (tx_render, rx_render) = mpsc::channel::<ServerRender>();
@@ -108,10 +107,9 @@ pub fn spawn_server(
 			acc += now.duration_since(last_step).as_secs_f32();
 			last_step = now;
 
-			// Keep server tick behind clock by lead_ticks
+			// Server runs at wall clock time
 			let elapsed = now.saturating_duration_since(start_at);
 			let wall_tick = (elapsed.as_secs_f32() * crate::sim::TPS as f32).floor() as u32;
-			let max_tick = wall_tick.saturating_sub(lead_ticks);
 
 			while let Ok(msg) = rx_in.try_recv() {
 				let pid = msg.player_id;
@@ -124,7 +122,7 @@ pub fn spawn_server(
 				pending[pid].entry(msg.tick).or_insert(msg.bits);
 			}
 
-			while acc >= crate::sim::DT && tick <= max_tick {
+			while acc >= crate::sim::DT && tick <= wall_tick {
 				let mut inputs = last;
 				for pid in 0..PLAYER_COUNT {
 					if let Some(b) = pending[pid].remove(&tick) {
