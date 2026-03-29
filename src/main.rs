@@ -211,8 +211,14 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 			match ev {
 				NetEvent::AssignStart(a) => {
 					my_id = a.player_id as usize;
-					sim_start_at =
-						Some(Instant::now() + Duration::from_millis(a.start_after_ms as u64));
+					// Adjust the announced start time by our estimated one-way latency so our local
+					// clock is ahead enough for inputs to arrive before the server authorizes the tick.
+					let cur_delay_ms = artificial_delay_ms.load(Ordering::Relaxed);
+					sim_start_at = Some(
+						Instant::now()
+							+ Duration::from_millis(a.start_after_ms as u64)
+								.saturating_sub(Duration::from_millis(cur_delay_ms as u64)),
+					);
 
 					state = SimState::new();
 					render_prev_state = state;
@@ -296,11 +302,11 @@ async fn run_client(addr: String, buffer: RenderTarget, malicious: bool) -> anyh
 
 		// Estimated latency from the artificial delay
 		let delay_ms = artificial_delay_ms.load(Ordering::Relaxed);
-		let latency_ticks = ((delay_ms as f32 / 1000.0) * sim::TPS as f32).ceil() as u32;
+		let one_way_ticks = ((delay_ms as f32 / 1000.0) * sim::TPS as f32).ceil() as u32;
 
-		// Calculate dynamic lead: round-trip latency (2x one-way) plus a small buffer
-		// This ensures our inputs arrive at the server in time
-		let target_lead_ticks = (latency_ticks * 2).max(3);
+		// Calculate dynamic lead: round-trip latency (2x one-way) plus a small buffer,
+		// but never exceed the server's acceptance window.
+		let target_lead_ticks = ((one_way_ticks * 2).max(3)).min(D_MAX.saturating_sub(1));
 
 		// Estimate server tick (server runs at wall clock time)
 		let estimated_server_tick = time_tick;
